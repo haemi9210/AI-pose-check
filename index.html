@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI와 함께하는 바른자세 교실</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- MediaPipe Pose JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <!-- QR Code Generator JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { font-family: 'Pretendard', sans-serif; }
+        ::-webkit-scrollbar { display: none; }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-gray-200 text-gray-800 flex justify-center items-center min-h-screen">
+
+<div class="w-full max-w-md h-screen sm:h-[90vh] sm:rounded-[2.5rem] bg-white sm:shadow-2xl flex flex-col relative overflow-hidden">
+    
+    <!-- 상단 헤더 -->
+    <header class="bg-white px-5 py-4 flex items-center justify-between z-10 border-b border-gray-100">
+        <div class="flex items-center gap-2">
+            <i data-lucide="activity" class="text-blue-600"></i>
+            <h1 class="font-bold text-lg tracking-tight">AI와 함께하는 바른자세 교실</h1>
+        </div>
+        <div class="flex items-center gap-2">
+            <button id="btnReset" class="text-gray-400 hover:text-gray-700 hidden bg-gray-100 p-2 rounded-full transition-colors" title="다시 하기">
+                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+            </button>
+            <button id="btnShowQR" class="text-blue-600 hover:bg-blue-50 bg-white border border-blue-100 px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5 transition-colors shadow-sm" title="학생들에게 공유하기">
+                <i data-lucide="share-2" class="w-4 h-4"></i>
+                <span>공유</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- 메인 컨텐츠 영역 -->
+    <main class="flex-1 overflow-y-auto pb-10 bg-gray-50 flex flex-col">
+
+        <!-- 분석 모드 선택 탭 -->
+        <div class="px-4 mt-4 mb-2">
+            <div class="flex bg-gray-200/80 p-1.5 rounded-2xl relative">
+                <div id="tabIndicator" class="absolute top-1.5 bottom-1.5 w-[calc(33.333%-0.5rem)] bg-white rounded-xl shadow-sm transition-transform duration-300 ease-in-out left-1.5"></div>
+                
+                <button id="tabSide" class="flex-1 py-2.5 text-[11px] sm:text-xs font-bold text-blue-600 relative z-10 transition-colors">
+                    <div class="flex flex-col items-center justify-center gap-1">
+                        <i data-lucide="user" class="w-4 h-4"></i> 측면(거북목)
+                    </div>
+                </button>
+                <button id="tabFront" class="flex-1 py-2.5 text-[11px] sm:text-xs font-bold text-gray-500 relative z-10 transition-colors">
+                    <div class="flex flex-col items-center justify-center gap-1">
+                        <i data-lucide="users" class="w-4 h-4"></i> 정면(비대칭)
+                    </div>
+                </button>
+                <button id="tabScoliosis" class="flex-1 py-2.5 text-[11px] sm:text-xs font-bold text-gray-500 relative z-10 transition-colors">
+                    <div class="flex flex-col items-center justify-center gap-1">
+                        <i data-lucide="scan-eye" class="w-4 h-4"></i> 전방굴곡(측만증)
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <!-- 카메라/사진 표시 영역 (측면/정면 전용) -->
+        <div class="px-4 relative" id="cameraSection">
+            <div class="relative w-full aspect-[3/4] bg-gray-900 rounded-[1.5rem] overflow-hidden shadow-inner flex items-center justify-center">
+
+                <div id="placeholderView" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 z-10 transition-opacity">
+                    <i data-lucide="scan-line" class="w-16 h-16 mb-4 opacity-50"></i>
+                    <p id="placeholderTitle" class="font-semibold text-white mb-1 text-center px-4">측면 전체가 나오게 찍어주세요</p>
+                    <p id="placeholderDesc" class="text-xs text-gray-400 text-center px-6 leading-relaxed">
+                        귀, 어깨, 골반이 명확하게 보일수록<br>분석 결과가 정확해집니다.
+                    </p>
+                </div>
+
+                <video id="videoElement" class="absolute inset-0 w-full h-full object-contain hidden" autoplay playsinline></video>
+                <canvas id="canvasElement" class="absolute inset-0 w-full h-full object-contain hidden z-20"></canvas>
+
+                <div id="guideOverlay" class="absolute inset-0 hidden flex-col items-center justify-center z-30 pointer-events-none">
+                    <div id="guideBox" class="w-1/2 h-3/4 border-2 border-dashed border-white/50 rounded-2xl relative transition-all duration-300">
+                        <div id="guideText" class="absolute -top-10 left-1/2 -translate-x-1/2 bg-black/70 text-white text-[11px] px-3 py-1.5 rounded-full whitespace-nowrap shadow-lg backdrop-blur-sm">
+                            옆모습이 이 영역 안에 오도록 맞춰주세요
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            
+            <!-- 어깨 포인트 미세조정 섹션 (측면 전용) -->
+            <div id="calibrationSection" class="mt-3 bg-white p-4 rounded-[1.2rem] shadow-sm border border-gray-100 hidden animate-fade-in-up">
+                <label class="text-xs font-bold text-gray-800 flex justify-between mb-2">
+                    <span><i data-lucide="sliders" class="w-4 h-4 inline pb-0.5 text-blue-600"></i> 어깨점 위치 조절 (좌/우)</span>
+                    <span id="calibrationVal" class="text-blue-600 font-bold">기본값</span>
+                </label>
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-bold text-gray-400">좌</span>
+                    <input type="range" id="shoulderAdjuster" min="-50" max="50" value="0" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                    <span class="text-xs font-bold text-gray-400">우</span>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-2.5 leading-tight text-center">
+                    화면을 보면서 <b>좌/우 슬라이더</b>를 움직여 어깨 관절 위치를 정확히 맞춰주세요.
+                </p>
+            </div>
+        </div>
+
+        <!-- 전방굴곡 체크리스트 안내 카드 (사진 분석 없이 설명/체크만) -->
+        <div id="scoliosisChecklist" class="hidden px-4 mt-4 animate-fade-in-up">
+            <div class="bg-white rounded-[1.5rem] p-6 shadow-sm border border-gray-100 flex flex-col gap-5">
+                <div class="flex items-start gap-3">
+                    <div class="bg-blue-50 p-3 rounded-2xl text-blue-600 shrink-0">
+                        <i data-lucide="scan-eye" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg mb-1">전방굴곡 검사 (Adam's Test)</h3>
+                        <p class="text-[13px] text-gray-500 leading-relaxed">
+                            ① 뒤돌아서기 → ② 무릎을 편 채 허리를 90도 가까이 숙이기 → ③ 등 뒤에서 아래 항목을 관찰해보세요.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-3">
+                    <label class="flex items-start gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
+                        <input type="checkbox" class="scoliosisCheck mt-1 w-4 h-4 accent-blue-600">
+                        <span class="text-sm text-gray-700">한쪽 등(갈비뼈)이 반대쪽보다 더 튀어나와 보인다</span>
+                    </label>
+                    <label class="flex items-start gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
+                        <input type="checkbox" class="scoliosisCheck mt-1 w-4 h-4 accent-blue-600">
+                        <span class="text-sm text-gray-700">좌우 어깨 높이가 다르게 보인다</span>
+                    </label>
+                    <label class="flex items-start gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
+                        <input type="checkbox" class="scoliosisCheck mt-1 w-4 h-4 accent-blue-600">
+                        <span class="text-sm text-gray-700">좌우 허리선(옆구리 라인)이 비대칭으로 보인다</span>
+                    </label>
+                    <label class="flex items-start gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
+                        <input type="checkbox" class="scoliosisCheck mt-1 w-4 h-4 accent-blue-600">
+                        <span class="text-sm text-gray-700">골반 높이가 좌우 다르게 보인다</span>
+                    </label>
+                </div>
+
+                <button id="btnCheckScoliosis" class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-all text-sm">
+                    체크 결과 확인하기
+                </button>
+
+                <div id="scoliosisResultText" class="hidden bg-blue-50/60 border border-blue-100 rounded-xl px-3.5 py-3 text-[13px] text-blue-800 leading-relaxed"></div>
+
+                <p class="text-[11px] text-gray-400 leading-relaxed">
+                    ※ 이 체크리스트는 육안 관찰에 의한 참고용 선별 질문이며, 정확한 진단은 전문의의 X-ray(Cobb 각) 검사를 통해서만 가능합니다.
+                </p>
+            </div>
+        </div>
+
+        <!-- 하단 컨트롤 버튼 (측면/정면 전용) -->
+        <div class="px-4 flex gap-3 mt-4" id="controlPanel">
+            <button id="btnUploadTrigger" class="flex-1 bg-white border border-gray-200 text-gray-700 font-semibold py-4 rounded-2xl shadow-sm hover:bg-gray-50 transition-all flex justify-center items-center gap-2">
+                <i data-lucide="image" class="w-5 h-5"></i>
+                사진 불러오기
+            </button>
+            <button id="btnCamera" class="flex-1 bg-blue-600 text-white font-semibold py-4 rounded-2xl shadow-md shadow-blue-200 hover:bg-blue-700 transition-all flex justify-center items-center gap-2">
+                <i data-lucide="camera" class="w-5 h-5"></i>
+                카메라 촬영
+            </button>
+        </div>
+
+        <div class="px-4 hidden mt-4" id="capturePanel">
+            <button id="btnCapture" class="w-full bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all flex justify-center items-center gap-2 text-lg relative overflow-hidden">
+                <span class="relative z-10 flex items-center gap-2">
+                    <i data-lucide="aperture" class="w-6 h-6 animate-pulse"></i>
+                    이 구도로 분석하기
+                </span>
+            </button>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" class="hidden" />
+
+        <!-- 결과 출력 카드 (측면/정면 전용 — AI 사진 분석 결과) -->
+        <div id="resultCard" class="hidden px-4 mt-8 animate-fade-in-up">
+            <div class="bg-white rounded-[1.5rem] p-6 shadow-sm border border-gray-100 flex flex-col gap-6 relative overflow-hidden">
+                
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-green-400"></div>
+
+                <div class="text-center pb-5 border-b border-gray-100">
+                    <h3 class="text-blue-600 text-[11px] font-bold mb-1 tracking-wider uppercase">Analysis Complete</h3>
+                    <p id="resultMainTitle" class="font-extrabold text-gray-800 text-xl">측면 자세 진단 결과</p>
+                </div>
+
+                <!-- 분석 항목 1 -->
+                <div class="flex gap-4">
+                    <div id="item1IconBg" class="bg-gray-100 p-3.5 rounded-2xl text-gray-500 self-start">
+                        <i id="item1Icon" data-lucide="user" class="w-6 h-6"></i>
+                    </div>
+                    <div class="flex-1 pt-1">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <h4 id="item1Title" class="font-bold text-gray-800 text-[15px]">목 (거북목)</h4>
+                            <span id="item1Status" class="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">-</span>
+                        </div>
+                        <div class="flex items-baseline gap-2 mb-2">
+                            <span id="item1AngleVal" class="text-3xl font-black text-gray-900 tracking-tighter">0.0°</span>
+                            <span id="item1Ref" class="text-[11px] text-gray-400">정상 기준: 0~15°</span>
+                        </div>
+                        <p id="item1Text" class="text-[13px] text-gray-600 leading-relaxed">...</p>
+                    </div>
+                </div>
+
+                <!-- 분석 항목 2 -->
+                <div class="flex gap-4">
+                    <div id="item2IconBg" class="bg-gray-100 p-3.5 rounded-2xl text-gray-500 self-start">
+                        <i id="item2Icon" data-lucide="align-end-vertical" class="w-6 h-6"></i>
+                    </div>
+                    <div class="flex-1 pt-1">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <h4 id="item2Title" class="font-bold text-gray-800 text-[15px]">등·허리 (굽은등)</h4>
+                            <span id="item2Status" class="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">-</span>
+                        </div>
+                        <div class="flex items-baseline gap-2 mb-2">
+                            <span id="item2AngleVal" class="text-3xl font-black text-gray-900 tracking-tighter">0.0°</span>
+                            <span id="item2Ref" class="text-[11px] text-gray-400">정상 기준: 0~15°</span>
+                        </div>
+                        <p id="item2Text" class="text-[13px] text-gray-600 leading-relaxed">...</p>
+                    </div>
+                </div>
+
+                <!-- 측정 기준 안내 / 주의사항 -->
+                <div class="bg-blue-50/60 border border-blue-100 rounded-xl px-3.5 py-3 flex gap-2.5 items-start">
+                    <i data-lucide="info" class="w-4 h-4 text-blue-500 mt-0.5 shrink-0"></i>
+                    <p id="resultDisclaimer" class="text-[11px] text-blue-800 leading-relaxed">...</p>
+                </div>
+
+                <!-- 다운로드 버튼 -->
+                <div class="pt-4 mt-2 border-t border-gray-100 flex gap-3">
+                    <button id="btnDownload" class="w-full bg-gray-100 text-gray-700 font-bold py-3.5 rounded-xl hover:bg-gray-200 transition-all flex justify-center items-center gap-2 text-sm">
+                        <i data-lucide="download" class="w-4 h-4"></i> 결과 사진 갤러리에 저장하기
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 하단 푸터 (보건교사 서명 표시) -->
+    <footer class="w-full py-3 text-center bg-white border-t border-gray-100">
+        <p class="text-[11px] text-gray-400 tracking-wide">
+            인천청람중 보건교사 햄쌤
+        </p>
+    </footer>
+
+    <!-- 로딩 오버레이 -->
+    <div id="loadingOverlay" class="absolute inset-0 bg-white/95 backdrop-blur-md z-50 flex flex-col items-center justify-center hidden">
+        <div class="relative w-16 h-16 mb-6">
+            <div class="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+            <i data-lucide="brain" class="absolute inset-0 m-auto w-6 h-6 text-blue-600"></i>
+        </div>
+        <h3 class="font-bold text-gray-800 text-lg mb-2" id="loadingTitle">AI 엔진 준비 중</h3>
+        <p id="loadingText" class="text-gray-500 text-sm font-medium">최초 1회 구동 시 약간의 시간이 소요됩니다.</p>
+    </div>
+
+    <!-- 공유하기 (QR 및 링크) 모달 -->
+    <div id="qrModal" class="absolute inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex-col items-center justify-center p-6">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 flex flex-col items-center shadow-2xl relative animate-fade-in-up">
+            <button id="btnCloseQR" class="absolute top-4 right-4 text-gray-400 hover:text-gray-800 transition-colors">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+            <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4">
+                <i data-lucide="link" class="w-6 h-6"></i>
+            </div>
+            <h2 class="text-xl font-extrabold text-gray-900 mb-2">학생들에게 공유하기</h2>
+            <p class="text-sm text-gray-500 text-center mb-6 leading-relaxed">
+                스마트보드에 QR을 띄우시거나<br>링크를 복사해서 전달해주세요.
+            </p>
+            <div id="qrcodeContainer" class="p-4 bg-white border-2 border-gray-100 rounded-2xl shadow-sm mb-4"></div>
+            <button id="btnCopyLink" class="w-full bg-blue-50 text-blue-600 font-bold py-3 rounded-xl border border-blue-100 hover:bg-blue-100 transition-all flex justify-center items-center gap-2 text-sm">
+                <i data-lucide="copy" class="w-4 h-4"></i> URL 링크 복사하기
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const videoElement = document.getElementById('videoElement');
+    const canvasElement = document.getElementById('canvasElement');
+    const placeholderView = document.getElementById('placeholderView');
+    const guideOverlay = document.getElementById('guideOverlay');
+    
+    const controlPanel = document.getElementById('controlPanel');
+    const capturePanel = document.getElementById('capturePanel');
+    const btnCamera = document.getElementById('btnCamera');
+    const btnUploadTrigger = document.getElementById('btnUploadTrigger');
+    const btnCapture = document.getElementById('btnCapture');
+    const btnReset = document.getElementById('btnReset');
+    const fileInput = document.getElementById('fileInput');
+    const btnDownload = document.getElementById('btnDownload');
+
+    const btnShowQR = document.getElementById('btnShowQR');
+    const qrModal = document.getElementById('qrModal');
+    const btnCloseQR = document.getElementById('btnCloseQR');
+    const qrcodeContainer = document.getElementById('qrcodeContainer');
+    const btnCopyLink = document.getElementById('btnCopyLink');
+    
+    const tabSide = document.getElementById('tabSide');
+    const tabFront = document.getElementById('tabFront');
+    const tabScoliosis = document.getElementById('tabScoliosis');
+    const tabIndicator = document.getElementById('tabIndicator');
+    const placeholderTitle = document.getElementById('placeholderTitle');
+    const placeholderDesc = document.getElementById('placeholderDesc');
+    const guideText = document.getElementById('guideText');
+    const guideBox = document.getElementById('guideBox');
+
+    const cameraSection = document.getElementById('cameraSection');
+    const scoliosisChecklist = document.getElementById('scoliosisChecklist');
+    const resultCard = document.getElementById('resultCard');
+
+    let qrcodeInstance = null;
+    let pose;
+    let stream = null;
+    let analysisMode = 'side'; // 'side' | 'front' | 'scoliosis'
+    let lastPoseResults = null;
+
+    lucide.createIcons();
+
+    // --- 전방굴곡 체크리스트 초기화 함수 ---
+    function resetScoliosisChecklist() {
+        document.querySelectorAll('.scoliosisCheck').forEach(c => c.checked = false);
+        const resultBox = document.getElementById('scoliosisResultText');
+        resultBox.classList.add('hidden');
+        resultBox.innerHTML = '';
+    }
+
+    // --- 모드별 화면(카메라 UI / 체크리스트 UI) 전환 함수 ---
+    function showCameraUI() {
+        scoliosisChecklist.classList.add('hidden');
+        cameraSection.classList.remove('hidden');
+        resultCard.classList.add('hidden');
+
+        stopCamera();
+        videoElement.classList.add('hidden');
+        canvasElement.classList.add('hidden');
+        guideOverlay.classList.add('hidden');
+        guideOverlay.classList.remove('flex');
+        capturePanel.classList.add('hidden');
+
+        placeholderView.classList.remove('hidden');
+        controlPanel.classList.remove('hidden');
+        btnReset.classList.add('hidden');
+        fileInput.value = '';
+        lastPoseResults = null;
+    }
+
+    function showChecklistUI() {
+        cameraSection.classList.add('hidden');
+        controlPanel.classList.add('hidden');
+        capturePanel.classList.add('hidden');
+        resultCard.classList.add('hidden');
+        btnReset.classList.add('hidden');
+
+        stopCamera();
+
+        resetScoliosisChecklist();
+        scoliosisChecklist.classList.remove('hidden');
+    }
+
+    // --- 모드(측면/정면/전방굴곡) 전환 로직 ---
+    const allTabs = [tabSide, tabFront, tabScoliosis];
+
+    function activateTab(activeBtn, index) {
+        allTabs.forEach(btn => btn.classList.replace('text-blue-600', 'text-gray-500'));
+        activeBtn.classList.replace('text-gray-500', 'text-blue-600');
+        tabIndicator.style.transform = `translateX(${index * 100}%)`;
+    }
+
+    tabSide.addEventListener('click', () => {
+        analysisMode = 'side';
+        activateTab(tabSide, 0);
+        placeholderTitle.innerText = "측면 전체가 나오게 찍어주세요";
+        placeholderDesc.innerHTML = "귀, 어깨, 골반이 명확하게 보일수록<br>분석 결과가 정확해집니다.";
+        guideText.innerText = "옆모습이 이 영역 안에 오도록 맞춰주세요";
+        guideBox.className = "w-1/2 h-3/4 border-2 border-dashed border-white/50 rounded-2xl relative transition-all duration-300";
+        showCameraUI();
+    });
+
+    tabFront.addEventListener('click', () => {
+        analysisMode = 'front';
+        activateTab(tabFront, 1);
+        placeholderTitle.innerText = "정면 전체가 나오게 찍어주세요";
+        placeholderDesc.innerHTML = "양쪽 어깨와 골반이 명확하게 보일수록<br>비대칭 분석이 정확해집니다.";
+        guideText.innerText = "정면 모습이 이 영역 안에 오도록 맞춰주세요";
+        guideBox.className = "w-1/2 h-3/4 border-2 border-dashed border-white/50 rounded-2xl relative transition-all duration-300";
+        showCameraUI();
+    });
+
+    tabScoliosis.addEventListener('click', () => {
+        analysisMode = 'scoliosis';
+        activateTab(tabScoliosis, 2);
+        showChecklistUI();
+    });
+
+    // --- 초기화 로직 ---
+    window.onload = async () => {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        loadingOverlay.classList.remove('hidden');
+
+        pose = new Pose({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+        });
+
+        pose.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.3,
+            minTrackingConfidence: 0.3
+        });
+
+        pose.onResults(onResults);
+
+        try {
+            await pose.initialize();
+            loadingOverlay.classList.add('hidden');
+        } catch(e) {
+            console.error(e);
+            alert('AI 모델 로드에 실패했습니다. 네트워크를 확인해주세요.');
+            loadingOverlay.classList.add('hidden');
+        }
+    };
+
+    // --- 카메라/업로드 로직 (측면/정면 전용) ---
+    btnCamera.addEventListener('click', async () => {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            videoElement.srcObject = stream;
+            
+            placeholderView.classList.add('hidden');
+            canvasElement.classList.add('hidden');
+            videoElement.classList.remove('hidden');
+            guideOverlay.classList.remove('hidden');
+            guideOverlay.classList.add('flex');
+
+            controlPanel.classList.add('hidden');
+            capturePanel.classList.remove('hidden');
+            resultCard.classList.add('hidden');
+            btnReset.classList.remove('hidden');
+
+        } catch (err) {
+            alert("카메라 권한을 허용해주세요. 권한 창이 안 뜨면 스마트폰 브라우저 설정에서 카메라를 허용해야 합니다.");
+        }
+    });
+
+    btnCapture.addEventListener('click', async () => {
+        canvasElement.width = videoElement.videoWidth;
+        canvasElement.height = videoElement.videoHeight;
+        const ctx = canvasElement.getContext('2d');
+        ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+        stopCamera();
+        
+        videoElement.classList.add('hidden');
+        canvasElement.classList.remove('hidden');
+        guideOverlay.classList.add('hidden');
+        guideOverlay.classList.remove('flex');
+        capturePanel.classList.add('hidden');
+
+        await analyzeImage(canvasElement);
+    });
+
+    btnUploadTrigger.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new Image();
+            img.onload = async () => {
+                canvasElement.width = img.width;
+                canvasElement.height = img.height;
+                const ctx = canvasElement.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                placeholderView.classList.add('hidden');
+                videoElement.classList.add('hidden');
+                guideOverlay.classList.add('hidden');
+                canvasElement.classList.remove('hidden');
+                controlPanel.classList.add('hidden');
+                resultCard.classList.add('hidden');
+                btnReset.classList.remove('hidden');
+
+                await analyzeImage(canvasElement);
+            };
+            img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    async function analyzeImage(imageSource) {
+        document.getElementById('loadingOverlay').classList.remove('hidden');
+        document.getElementById('loadingTitle').innerText = "정밀 분석 중...";
+        document.getElementById('loadingText').innerText = "관절 포인트를 추출하고 있습니다.";
+
+        pose.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.3,
+            minTrackingConfidence: 0.3
+        });
+
+        try {
+            await pose.send({image: imageSource});
+        } catch(err) {
+            alert('이미지 분석 중 오류가 발생했습니다.');
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+    }
+
+    // --- 리셋 버튼: 현재 모드(측면/정면 ↔ 전방굴곡)에 맞게 분기 처리 ---
+    btnReset.addEventListener('click', () => {
+        if (analysisMode === 'scoliosis') {
+            showChecklistUI();
+        } else {
+            showCameraUI();
+        }
+    });
+
+    function stopCamera() {
+        if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+    }
+
+    // --- 수리/계산 함수 ---
+    function getAngleFromVertical(topPt, bottomPt) {
+        const dx = Math.abs(topPt.x - bottomPt.x);
+        const dy = Math.abs(topPt.y - bottomPt.y);
+        if (dy === 0) return 90;
+        return Math.atan(dx / dy) * (180 / Math.PI);
+    }
+
+    function getAngleFromHorizontal(pt1, pt2) {
+        const dx = Math.abs(pt1.x - pt2.x);
+        const dy = Math.abs(pt1.y - pt2.y);
+        if (dx === 0) return 90;
+        return Math.atan(dy / dx) * (180 / Math.PI);
+    }
+
+    function getStatusColor(angle, warnThresh, dangerThresh) {
+        if (angle < warnThresh) return 'rgba(34, 197, 94, 1)'; // 초록
+        if (angle < dangerThresh) return 'rgba(245, 158, 11, 1)'; // 주황
+        return 'rgba(239, 68, 68, 1)'; // 빨강
+    }
+
+    // --- AI 최초 분석 콜백 (측면/정면 전용) ---
+    function onResults(results) {
+        document.getElementById('loadingOverlay').classList.add('hidden');
+
+        if (!results.poseLandmarks) {
+            alert('자세를 명확하게 인식할 수 없습니다.\n전신이 잘 나오도록 거리를 조절하고, 밝은 곳에서 다시 찍어보세요.');
+            btnReset.click();
+            return;
+        }
+
+        lastPoseResults = results;
+        
+        document.getElementById('shoulderAdjuster').value = 0;
+        document.getElementById('calibrationVal').innerText = '기본값 (0)';
+
+        if (analysisMode === 'side') {
+            document.getElementById('calibrationSection').classList.remove('hidden');
+        } else {
+            document.getElementById('calibrationSection').classList.add('hidden');
+        }
+
+        renderAnalysis();
+
+        resultCard.classList.remove('hidden');
+        document.querySelector('main').scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // --- 어깨 미세조정 슬라이더 이벤트 ---
+    document.getElementById('shoulderAdjuster').addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        const label = document.getElementById('calibrationVal');
+        
+        if (val > 0) label.innerText = `우측으로 이동 (+${val})`;
+        else if (val < 0) label.innerText = `좌측으로 이동 (${val})`;
+        else label.innerText = `기본값`;
+        
+        if(lastPoseResults) renderAnalysis(); 
+    });
+
+    // --- 렌더링(그리기 및 각도계산) 핵심 로직 ---
+    function renderAnalysis() {
+        if (!lastPoseResults) return;
+
+        const results = lastPoseResults;
+        const landmarks = results.poseLandmarks;
+        const w = canvasElement.width;
+        const h = canvasElement.height;
+        const ctx = canvasElement.getContext('2d');
+
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(results.image, 0, 0, w, h);
+        
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 1;
+        for(let x=0; x<w; x+=w/10) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+        for(let y=0; y<h; y+=h/10) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+        if (analysisMode === 'side') {
+            processSideAnalysis(ctx, landmarks, w, h);
+        } else {
+            processFrontAnalysis(ctx, landmarks, w, h);
+        }
+    }
+
+    // --- 측면 분석 (미세조정 적용) ---
+    function processSideAnalysis(ctx, landmarks, w, h) {
+        const leftVis = landmarks[7].visibility + landmarks[11].visibility + landmarks[23].visibility;
+        const rightVis = landmarks[8].visibility + landmarks[12].visibility + landmarks[24].visibility;
+        const isLeft = leftVis > rightVis;
+
+        const ear = isLeft ? landmarks[7] : landmarks[8];
+        const rawShoulder = isLeft ? landmarks[11] : landmarks[12];
+        const hip = isLeft ? landmarks[23] : landmarks[24];
+
+        const adjustVal = parseInt(document.getElementById('shoulderAdjuster').value);
+        
+        const adjustedShoulder = {
+            x: rawShoulder.x + (adjustVal / w),
+            y: rawShoulder.y,
+            visibility: rawShoulder.visibility
+        };
+
+        const neckAngle = getAngleFromVertical(ear, adjustedShoulder);
+        const backAngle = getAngleFromVertical(adjustedShoulder, hip);
+
+        document.getElementById('resultMainTitle').innerText = "측면 자세 진단 결과";
+        document.getElementById('resultDisclaimer').innerHTML =
+            '이 결과는 사진 속 관절 좌표로 추정한 <b>참고용 스크리닝 값</b>이며, 실제 진단 기준인 두개척추각(CVA)·Cobb 각과 측정 방식이 달라 병원 진단을 대신할 수 없습니다. 색이 붉게 나오면 보건교사 또는 정형외과 상담을 권장합니다.';
+
+        updateStatusUI('item1', '목 정렬 (귀-어깨 추선)', 'user', neckAngle, 15, 25, 
+            '귀와 어깨가 수직 정렬선에 가깝습니다. <b>이상적인 정렬</b>에 해당합니다.', 
+            '귀가 어깨보다 앞으로 살짝 나와, 정렬선에서 <b>다소 벗어난</b> 상태입니다. 목·어깨 스트레칭을 해보세요.', 
+            '귀가 어깨보다 <b>많이 앞으로 나와</b>있어 정렬선에서 뚜렷하게 벗어났습니다. 습관적으로 반복된다면 보건교사·전문의와 상담해보세요.',
+            { refLabel: '정렬 관찰 기준: 0~15° (참고용, 진단 등급 아님)',
+              statusLabels: ['정렬 양호', '정렬 관찰 필요', '정렬 많이 벗어남'] });
+        
+        updateStatusUI('item2', '등·허리 (몸통 전방 기울임)', 'align-end-vertical', backAngle, 15, 30,
+            '어깨~골반 라인이 곧게 정렬된 <b>바른 자세</b>입니다.',
+            '몸통이 앞으로 약간 기울어진 <b>굽은 등(라운드 백)</b> 경향이 있습니다. 의식적으로 <b>허리를 펴주세요.</b>',
+            '<b>뚜렷한 굽은 등</b>이 관찰됩니다. 참고: 정확한 흉추후만(굽은등) 진단은 X-ray Cobb 각(정상 20~45°)으로 확인하며, 전문가 상담을 권장합니다.',
+            { refLabel: '정렬 관찰 기준: 0~15° (참고용, 진단 등급 아님)',
+              statusLabels: ['정렬 양호', '정렬 관찰 필요', '정렬 많이 벗어남'] });
+
+        const earPx = { x: ear.x * w, y: ear.y * h };
+        const shoulderPx = { x: adjustedShoulder.x * w, y: adjustedShoulder.y * h };
+        const hipPx = { x: hip.x * w, y: hip.y * h };
+
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = getStatusColor(neckAngle, 15, 25);
+        ctx.beginPath(); ctx.moveTo(earPx.x, earPx.y); ctx.lineTo(shoulderPx.x, shoulderPx.y); ctx.stroke();
+
+        ctx.strokeStyle = getStatusColor(backAngle, 15, 30);
+        ctx.beginPath(); ctx.moveTo(shoulderPx.x, shoulderPx.y); ctx.lineTo(hipPx.x, hipPx.y); ctx.stroke();
+
+        ctx.setLineDash([6, 6]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(shoulderPx.x, 0); ctx.lineTo(shoulderPx.x, h); ctx.stroke();
+        ctx.setLineDash([]);
+
+        [earPx, shoulderPx, hipPx].forEach(pt => {
+            ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = '#fff'; ctx.fill();
+            ctx.lineWidth = 2; ctx.strokeStyle = '#2563eb'; ctx.stroke();
+        });
+    }
+
+    // --- 정면 분석 (좌우 비대칭) ---
+    function processFrontAnalysis(ctx, landmarks, w, h) {
+        const leftShoulder = landmarks[11], rightShoulder = landmarks[12];
+        const leftHip = landmarks[23], rightHip = landmarks[24];
+
+        const shoulderAngle = getAngleFromHorizontal(leftShoulder, rightShoulder);
+        const hipAngle = getAngleFromHorizontal(leftHip, rightHip);
+
+        document.getElementById('resultMainTitle').innerText = "정면 자세 진단 결과";
+        document.getElementById('resultDisclaimer').innerHTML =
+            '좌우 어깨·골반 높이 차이를 추정한 <b>참고용 스크리닝 값</b>입니다. 사진 촬영 각도나 카메라 틀어짐에 따라 오차가 생길 수 있어, 반복적으로 기울어짐이 관찰되면 보건교사 상담을 권장합니다.';
+
+        updateStatusUI('item1', '어깨 높이 (좌우 균형)', 'users', shoulderAngle, 2, 5,
+            '양쪽 어깨 높이가 거의 수평으로 <b>균형이 잘 맞습니다.</b>',
+            '한쪽 어깨가 살짝 높거나 낮은 <b>경미한 비대칭</b>이 관찰됩니다. 가방을 한쪽으로만 메지 않도록 주의해보세요.',
+            '어깨 높이 차이가 <b>뚜렷하게</b> 관찰됩니다. 자세 습관 점검과 함께 보건교사·전문의 상담을 권장합니다.',
+            { refLabel: '균형 관찰 기준: 0~2° (참고용, 진단 등급 아님)',
+              statusLabels: ['균형 양호', '균형 관찰 필요', '균형 많이 벗어남'] });
+
+        updateStatusUI('item2', '골반 높이 (좌우 균형)', 'align-end-vertical', hipAngle, 2, 5,
+            '양쪽 골반 높이가 거의 수평으로 <b>균형이 잘 맞습니다.</b>',
+            '한쪽 골반이 살짝 높거나 낮은 <b>경미한 비대칭</b>이 관찰됩니다. 짝다리 습관이 있는지 확인해보세요.',
+            '골반 높이 차이가 <b>뚜렷하게</b> 관찰됩니다. 척추 정렬에 영향을 줄 수 있어 전문가 상담을 권장합니다.',
+            { refLabel: '균형 관찰 기준: 0~2° (참고용, 진단 등급 아님)',
+              statusLabels: ['균형 양호', '균형 관찰 필요', '균형 많이 벗어남'] });
+
+        const lsPx = { x: leftShoulder.x * w, y: leftShoulder.y * h };
+        const rsPx = { x: rightShoulder.x * w, y: rightShoulder.y * h };
+        const lhPx = { x: leftHip.x * w, y: leftHip.y * h };
+        const rhPx = { x: rightHip.x * w, y: rightHip.y * h };
+
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = getStatusColor(shoulderAngle, 2, 5);
+        ctx.beginPath(); ctx.moveTo(lsPx.x, lsPx.y); ctx.lineTo(rsPx.x, rsPx.y); ctx.stroke();
+
+        ctx.strokeStyle = getStatusColor(hipAngle, 2, 5);
+        ctx.beginPath(); ctx.moveTo(lhPx.x, lhPx.y); ctx.lineTo(rhPx.x, rhPx.y); ctx.stroke();
+
+        [lsPx, rsPx, lhPx, rhPx].forEach(pt => {
+            ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
+            ctx.fillStyle = '#fff'; ctx.fill();
+            ctx.lineWidth = 2; ctx.strokeStyle = '#2563eb'; ctx.stroke();
+        });
+    }
+
+    // --- 결과 카드 UI 공통 업데이트 함수 ---
+    function updateStatusUI(prefix, title, iconName, angle, warnThresh, dangerThresh, goodText, warnText, dangerText, refOptions) {
+        const color = getStatusColor(angle, warnThresh, dangerThresh);
+        let statusLabel, bgClass, textClass, text;
+
+        const labels = refOptions && refOptions.statusLabels
+            ? refOptions.statusLabels
+            : ['양호', '관찰 필요', '주의 필요'];
+
+        if (angle < warnThresh) {
+            statusLabel = labels[0]; bgClass = 'bg-green-100'; textClass = 'text-green-700'; text = goodText;
+        } else if (angle < dangerThresh) {
+            statusLabel = labels[1]; bgClass = 'bg-amber-100'; textClass = 'text-amber-700'; text = warnText;
+        } else {
+            statusLabel = labels[2]; bgClass = 'bg-red-100'; textClass = 'text-red-700'; text = dangerText;
+        }
+
+        document.getElementById(`${prefix}Title`).innerText = title;
+        document.getElementById(`${prefix}AngleVal`).innerText = `${angle.toFixed(1)}°`;
+        document.getElementById(`${prefix}Ref`).innerText = refOptions && refOptions.refLabel
+            ? refOptions.refLabel
+            : `정상 기준: 0~${warnThresh}°`;
+        document.getElementById(`${prefix}Text`).innerHTML = text;
+
+        const statusEl = document.getElementById(`${prefix}Status`);
+        statusEl.innerText = statusLabel;
+        statusEl.className = `px-2.5 py-1 ${bgClass} ${textClass} rounded-lg text-xs font-bold`;
+
+        const iconBg = document.getElementById(`${prefix}IconBg`);
+        iconBg.className = `${bgClass.replace('100','50')} p-3.5 rounded-2xl ${textClass} self-start`;
+        document.getElementById(`${prefix}Icon`).setAttribute('data-lucide', iconName);
+        lucide.createIcons();
+    }
+
+    // --- 전방굴곡 체크리스트 결과 확인 버튼 ---
+    document.getElementById('btnCheckScoliosis').addEventListener('click', () => {
+        const checks = document.querySelectorAll('.scoliosisCheck');
+        const checkedCount = Array.from(checks).filter(c => c.checked).length;
+        const resultBox = document.getElementById('scoliosisResultText');
+
+        resultBox.classList.remove('hidden');
+        if (checkedCount === 0) {
+            resultBox.innerHTML = '체크된 항목이 없습니다. <b>특이 소견이 관찰되지 않았습니다.</b> 다만 성장기에는 수시로 재확인하는 것이 좋습니다.';
+        } else {
+            resultBox.innerHTML = `${checkedCount}개 항목에서 비대칭이 관찰되었습니다. <b>정확한 진단은 사진 분석이 아닌 전문의의 직접 검진(X-ray, Cobb 각 측정)</b>이 필요하니, 보건교사 또는 정형외과 상담을 권장합니다.`;
+        }
+    });
+
+    // --- 결과 이미지 다운로드 (측면/정면 전용) ---
+    btnDownload.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = `바른자세_진단결과_${Date.now()}.png`;
+        link.href = canvasElement.toDataURL('image/png');
+        link.click();
+    });
+
+    // --- 공유 QR / 링크 모달 ---
+    btnShowQR.addEventListener('click', () => {
+        qrModal.classList.remove('hidden');
+        qrModal.classList.add('flex');
+
+        if (!qrcodeInstance) {
+            qrcodeInstance = new QRCode(qrcodeContainer, {
+                text: window.location.href,
+                width: 160,
+                height: 160,
+                colorDark: "#1f2937",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+        }
+    });
+
+    btnCloseQR.addEventListener('click', () => {
+        qrModal.classList.add('hidden');
+        qrModal.classList.remove('flex');
+    });
+
+    btnCopyLink.addEventListener('click', () => {
+        navigator.clipboard.writeText(window.location.href).then(() => {
+            btnCopyLink.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> 복사되었습니다!';
+            lucide.createIcons();
+            setTimeout(() => {
+                btnCopyLink.innerHTML = '<i data-lucide="copy" class="w-4 h-4"></i> URL 링크 복사하기';
+                lucide.createIcons();
+            }, 1500);
+        });
+    });
+</script>
+
+</body>
+</html>
